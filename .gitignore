@@ -1,0 +1,45 @@
+# Compiled binaries
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+
+# Example binaries (built from examples/*/main.go)
+examples/cpu/cpu-example
+examples/cuda/cuda-example
+examples/metal/metal-example
+examples/simple/simple-example
+examples/embeddings/embeddings-example
+
+# Test binaries
+*.test
+
+# Go build artifacts
+*.o
+*.a
+
+# Model files (large, should be downloaded separately)
+*.gguf
+*.bin
+
+# Huggingface cache
+.cache/
+
+# IDE and editor files
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Coverage files
+coverage.out
+coverage.html
+
+# Claude Code working directory
+.claude/
