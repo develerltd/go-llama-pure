@@ -28,7 +28,9 @@ var (
 	llamaModelGetVocabRaw func(model uintptr) uintptr
 
 	// Context management
-	llamaFreeRaw func(ctx uintptr)
+	llamaFreeRaw       func(ctx uintptr)
+	llamaGetMemoryRaw  func(ctx uintptr) uintptr
+	llamaMemoryClearRaw func(mem uintptr, data bool)
 
 	// Model/context info
 	llamaNCtxRaw         func(ctx uintptr) uint32
@@ -184,6 +186,8 @@ func registerFunctions() error {
 
 	// Context management
 	register(&llamaFreeRaw, "llama_free")
+	register(&llamaGetMemoryRaw, "llama_get_memory")
+	register(&llamaMemoryClearRaw, "llama_memory_clear")
 
 	// Model/context info
 	register(&llamaNCtxRaw, "llama_n_ctx")

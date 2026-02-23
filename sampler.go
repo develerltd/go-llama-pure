@@ -179,6 +179,10 @@ func (c *Context) Generate(prompt string, opts GenerateOptions) (string, error) 
 		return "", fmt.Errorf("prompt too long: %d tokens, context size: %d", len(tokens), c.nCtx)
 	}
 
+	// Clear KV cache so we can decode from position 0
+	llamaSynchronize(c.ctx)
+	c.ClearKVCache()
+
 	// Create sampler
 	sampler := NewSampler(opts.Sampling)
 	defer sampler.Close()

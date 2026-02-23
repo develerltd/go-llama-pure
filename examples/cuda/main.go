@@ -150,4 +150,33 @@ func main() {
 
 	fmt.Println()
 	ctx.PrintTimings()
+
+	// Second Generate call — tests that KV cache clearing works between calls.
+	// Without a working ClearKVCache, llama_decode fails because the cache
+	// still has tokens from the first call.
+	prompt2 := "Explain what a goroutine is in one sentence:"
+	fmt.Printf("\n--- Second Generate (context reuse) ---\n")
+	fmt.Printf("Prompt: %s\n\n", prompt2)
+	fmt.Print("Response: ")
+
+	_, err = ctx.Generate(prompt2, llama.GenerateOptions{
+		MaxTokens: *maxTokens,
+		Sampling: llama.SamplingParams{
+			Temperature:   0.7,
+			TopK:          40,
+			TopP:          0.95,
+			RepeatPenalty: 1.1,
+		},
+		Callback: func(token llama.LlamaToken, text string) bool {
+			fmt.Print(text)
+			return true
+		},
+	})
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "\nSecond Generate error: %v\n", err)
+		os.Exit(1)
+	}
+
+	fmt.Println()
+	ctx.PrintTimings()
 }

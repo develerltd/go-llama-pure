@@ -318,11 +318,12 @@ func (c *Context) GetEmbeddings() []float32 {
 	return unsafe.Slice((*float32)(ptr), c.model.nEmbd)
 }
 
-// ClearKVCache clears the KV cache
-// NOTE: This is a no-op in current llama.cpp versions where KV cache is managed internally
+// ClearKVCache clears the KV cache (memory) for this context.
 func (c *Context) ClearKVCache() {
-	// KV cache functions have been removed from the C API in recent llama.cpp versions
-	// The KV cache is now managed internally by the library
+	mem := llamaGetMemoryRaw(uintptr(c.ctx))
+	if mem != 0 {
+		llamaMemoryClearRaw(mem, true)
+	}
 }
 
 // RemoveKVCache removes KV cache entries for a sequence in position range [p0, p1)
