@@ -2,29 +2,19 @@
 
 package llama
 
-// Assembly functions for calling C functions with struct arguments on Linux amd64
-// These are implemented in call_linux_amd64.s
+// Assembly functions for calling C functions with struct-by-value arguments
+// on Linux amd64. Implemented in call_linux_amd64.s.
 
-// callStructOnly56 calls a C function: fn(struct56_by_value)
-// where the struct is the only argument (56 bytes, llama_batch), no return value
+// callWithStruct calls a C function: result = fn(arg1, struct_by_value)
+// where the struct of the given size is passed on the stack per System V AMD64 ABI.
+// The size must be a multiple of 8 and at most 264 bytes.
 //
 //go:noescape
-func callStructOnly56(fn uintptr, structPtr *byte)
+func callWithStruct(fn uintptr, arg1 uintptr, structPtr *byte, size uintptr) uintptr
 
-// callWithStruct56 calls a C function: result = fn(arg1, struct56_by_value)
-// where the struct is 56 bytes (llama_batch) and passed on the stack per System V AMD64 ABI
+// callStructOnly calls a C function: fn(struct_by_value)
+// where the struct is the only argument (no return value).
+// The size must be a multiple of 8 and at most 264 bytes.
 //
 //go:noescape
-func callWithStruct56(fn uintptr, arg1 uintptr, structPtr *byte) uintptr
-
-// callWithStruct72 calls a C function: result = fn(arg1, struct72_by_value)
-// where the struct is 72 bytes and passed on the stack per System V AMD64 ABI
-//
-//go:noescape
-func callWithStruct72(fn uintptr, arg1 uintptr, structPtr *byte) uintptr
-
-// callWithStruct136 calls a C function: result = fn(arg1, struct136_by_value)
-// where the struct is 136 bytes and passed on the stack per System V AMD64 ABI
-//
-//go:noescape
-func callWithStruct136(fn uintptr, arg1 uintptr, structPtr *byte) uintptr
+func callStructOnly(fn uintptr, structPtr *byte, size uintptr)

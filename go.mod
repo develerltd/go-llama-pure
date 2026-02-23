@@ -1,4 +1,4 @@
-module github.com/develerltd/go-llama-cpp
+module github.com/develerltd/go-llama-pure
 
 go 1.21
 

@@ -21,7 +21,7 @@ import (
 	"os"
 	"runtime"
 
-	llama "github.com/develerltd/go-llama-cpp"
+	llama "github.com/develerltd/go-llama-pure"
 )
 
 func main() {
@@ -112,6 +112,6 @@ func main() {
 		os.Exit(1)
 	}
 
-	fmt.Println("\n")
+	fmt.Println()
 	ctx.PrintTimings()
 }

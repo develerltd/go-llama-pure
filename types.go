@@ -172,18 +172,19 @@ func cString(s string) *byte {
 	return &b[0]
 }
 
-// Helper to convert C string to Go string
-func goString(cstr uintptr) string {
-	if cstr == 0 {
+// goString converts a C string to a Go string.
+// Scans at most maxCStringLen bytes to avoid runaway reads on unterminated strings.
+func goString(cstr unsafe.Pointer) string {
+	const maxCStringLen = 1 << 20 // 1 MiB
+	if cstr == nil {
 		return ""
 	}
-	ptr := unsafe.Pointer(cstr)
 	var length int
-	for {
-		if *(*byte)(unsafe.Add(ptr, length)) == 0 {
+	for length < maxCStringLen {
+		if *(*byte)(unsafe.Add(cstr, length)) == 0 {
 			break
 		}
 		length++
 	}
-	return string(unsafe.Slice((*byte)(ptr), length))
+	return string(unsafe.Slice((*byte)(cstr), length))
 }

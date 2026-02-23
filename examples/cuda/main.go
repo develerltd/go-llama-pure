@@ -21,7 +21,7 @@ import (
 	"os"
 	"runtime"
 
-	llama "github.com/develerltd/go-llama-cpp"
+	llama "github.com/develerltd/go-llama-pure"
 )
 
 // growStackDeep forces Go to allocate a large stack by doing deep recursion.
@@ -131,6 +131,6 @@ func main() {
 		os.Exit(1)
 	}
 
-	fmt.Println("\n")
+	fmt.Println()
 	ctx.PrintTimings()
 }

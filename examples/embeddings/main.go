@@ -7,7 +7,7 @@ import (
 	"math"
 	"os"
 
-	llama "github.com/develerltd/go-llama-cpp"
+	llama "github.com/develerltd/go-llama-pure"
 )
 
 func main() {

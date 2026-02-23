@@ -1,4 +1,4 @@
-# go-llama-cpp
+# go-llama-pure
 
 Go bindings for [llama.cpp](https://github.com/ggml-org/llama.cpp) **without cgo**, using [purego](https://github.com/ebitengine/purego) to dynamically load the llama.cpp shared library at runtime.
 
@@ -43,7 +43,7 @@ The shared library will be in `build/src/libllama.so` (or `.dylib`/`.dll`).
 ## Installation
 
 ```bash
-go get github.com/develerltd/go-llama-cpp
+go get github.com/develerltd/go-llama-pure
 ```
 
 ## Usage
@@ -55,7 +55,7 @@ package main
 
 import (
     "fmt"
-    llama "github.com/develerltd/go-llama-cpp"
+    llama "github.com/develerltd/go-llama-pure"
 )
 
 func main() {

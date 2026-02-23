@@ -26,20 +26,12 @@ func registerStructFunctions(libHandle uintptr) error {
 	return nil
 }
 
-func callStructOnly56(fn uintptr, structPtr *byte) {
-	panic("callStructOnly56 should not be called on this platform")
+func callWithStruct(fn uintptr, arg1 uintptr, structPtr *byte, size uintptr) uintptr {
+	panic("callWithStruct should not be called on this platform")
 }
 
-func callWithStruct56(fn uintptr, arg1 uintptr, structPtr *byte) uintptr {
-	panic("callWithStruct56 should not be called on this platform")
-}
-
-func callWithStruct72(fn uintptr, arg1 uintptr, structPtr *byte) uintptr {
-	panic("callWithStruct72 should not be called on this platform")
-}
-
-func callWithStruct136(fn uintptr, arg1 uintptr, structPtr *byte) uintptr {
-	panic("callWithStruct136 should not be called on this platform")
+func callStructOnly(fn uintptr, structPtr *byte, size uintptr) {
+	panic("callStructOnly should not be called on this platform")
 }
 
 func platformModelLoadFromFile(pathModel *byte, params LlamaModelParams) LlamaModel {

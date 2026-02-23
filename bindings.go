@@ -2,6 +2,7 @@ package llama
 
 import (
 	"fmt"
+	"path/filepath"
 	"runtime"
 	"sync"
 	"unsafe"
@@ -27,8 +28,9 @@ var (
 // Library function pointers - populated by Init()
 var (
 	// Backend management
-	llamaBackendInit func()
-	llamaBackendFree func()
+	llamaBackendInit    func()
+	llamaBackendFree    func()
+	ggmlBackendLoadAll  func()
 
 	// Model management
 	llamaModelFreeRaw     func(model uintptr)
@@ -55,11 +57,11 @@ var (
 	// Note: llama_batch_free uses assembly (platformBatchFree)
 
 	// Logits and embeddings
-	llamaGetLogits        func(ctx LlamaContext) uintptr
-	llamaGetLogitsIth     func(ctx LlamaContext, i int32) uintptr
-	llamaGetEmbeddings    func(ctx LlamaContext) uintptr
-	llamaGetEmbeddingsIth func(ctx LlamaContext, i int32) uintptr
-	llamaGetEmbeddingsSeq func(ctx LlamaContext, seqID LlamaSeqID) uintptr
+	llamaGetLogits        func(ctx LlamaContext) unsafe.Pointer
+	llamaGetLogitsIth     func(ctx LlamaContext, i int32) unsafe.Pointer
+	llamaGetEmbeddings    func(ctx LlamaContext) unsafe.Pointer
+	llamaGetEmbeddingsIth func(ctx LlamaContext, i int32) unsafe.Pointer
+	llamaGetEmbeddingsSeq func(ctx LlamaContext, seqID LlamaSeqID) unsafe.Pointer
 
 	// Sampler chain
 	llamaSamplerChainInitPtr func(params *LlamaSamplerChainParams) LlamaSampler
@@ -98,6 +100,14 @@ func getLibraryPath() string {
 	}
 }
 
+// libraryDir returns the directory containing the library, or empty if unknown.
+func libraryDir(path string) string {
+	if path == "" || !filepath.IsAbs(path) {
+		return ""
+	}
+	return filepath.Dir(path)
+}
+
 // Init initializes the llama.cpp library.
 func Init(libraryPath string) error {
 	initOnce.Do(func() {
@@ -124,6 +134,41 @@ func Init(libraryPath string) error {
 		}
 
 		llamaBackendInit()
+
+		// Load all ggml backends (CUDA, Metal, etc.)
+		// This is required for GPU support in modern llama.cpp.
+		// The symbol is in libggml.so which is loaded transitively.
+		// We prefer ggml_backend_load_all_from_path with an explicit path because
+		// ggml_backend_load_all uses dladdr to find the backend directory, which
+		// may not resolve correctly when the library is loaded via purego/dlopen.
+		var ggmlBackendLoadAllFromPath func(dirPath *byte)
+		sym, err := purego.Dlsym(libLlama, "ggml_backend_load_all_from_path")
+		if err != nil {
+			sym, _ = purego.Dlsym(purego.RTLD_DEFAULT, "ggml_backend_load_all_from_path")
+		}
+		if sym != 0 {
+			purego.RegisterFunc(&ggmlBackendLoadAllFromPath, sym)
+			// Derive the backend directory from the library path
+			backendDir := libraryDir(libraryPath)
+			if backendDir != "" {
+				dir := cString(backendDir)
+				ggmlBackendLoadAllFromPath(dir)
+			} else {
+				// Fall back to no-arg version
+				sym2, _ := purego.Dlsym(libLlama, "ggml_backend_load_all")
+				if sym2 != 0 {
+					purego.RegisterFunc(&ggmlBackendLoadAll, sym2)
+					ggmlBackendLoadAll()
+				}
+			}
+		} else {
+			// Try the no-arg version
+			sym, err = purego.Dlsym(libLlama, "ggml_backend_load_all")
+			if err == nil {
+				purego.RegisterFunc(&ggmlBackendLoadAll, sym)
+				ggmlBackendLoadAll()
+			}
+		}
 	})
 	return initErr
 }
@@ -241,18 +286,20 @@ func llamaInitFromModel(model LlamaModel, params LlamaContextParams) LlamaContex
 	return platformInitFromModel(model, params)
 }
 
-// DefaultModelParams returns default model parameters
+// DefaultModelParams returns default model parameters matching llama_model_default_params()
 func DefaultModelParams() LlamaModelParams {
 	return LlamaModelParams{
-		NGPULayers: 0,
-		SplitMode:  LlamaSplitModeLayer,
-		MainGPU:    0,
-		UseMmap:    true,
-		UseMlock:   false,
+		NGPULayers:    -1,
+		SplitMode:     LlamaSplitModeLayer,
+		MainGPU:       0,
+		UseMmap:       true,
+		UseDirectIO:   true,
+		UseMlock:      false,
+		UseExtraBufts: true,
 	}
 }
 
-// DefaultContextParams returns default context parameters
+// DefaultContextParams returns default context parameters matching llama_context_default_params()
 func DefaultContextParams() LlamaContextParams {
 	return LlamaContextParams{
 		NCtx:            512,
@@ -267,9 +314,9 @@ func DefaultContextParams() LlamaContextParams {
 		RopeFreqBase:    0.0,
 		RopeFreqScale:   0.0,
 		YarnExtFactor:   -1.0,
-		YarnAttnFactor:  1.0,
-		YarnBetaFast:    32.0,
-		YarnBetaSlow:    1.0,
+		YarnAttnFactor:  -1.0,
+		YarnBetaFast:    -1.0,
+		YarnBetaSlow:    -1.0,
 		YarnOrigCtx:     0,
 		DefragThold:     -1.0,
 		TypeK:           GGMLTypeF16,
@@ -277,6 +324,9 @@ func DefaultContextParams() LlamaContextParams {
 		Embeddings:      false,
 		OffloadKQV:      true,
 		FlashAttnType:   -1,
+		NoPerf:          true,
+		OpOffload:       true,
+		SwaFull:         true,
 	}
 }
 
@@ -355,7 +405,11 @@ type BatchData struct {
 
 // BatchGetOne creates a batch for a single sequence of tokens.
 // Returns BatchData which must be kept alive during the C call.
+// Panics if tokens is empty.
 func BatchGetOne(tokens []LlamaToken, pos0 LlamaPos, seqID LlamaSeqID) *BatchData {
+	if len(tokens) == 0 {
+		panic("llama: BatchGetOne called with empty tokens slice")
+	}
 	n := int32(len(tokens))
 
 	bd := &BatchData{

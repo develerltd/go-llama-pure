@@ -76,7 +76,7 @@ func DefaultContextOptions() ContextOptions {
 
 // LoadModel loads a model from a file
 func LoadModel(path string, opts ModelOptions) (*Model, error) {
-	if llamaModelLoadFromFile == nil {
+	if libLlama == 0 {
 		return nil, ErrNotInitialized
 	}
 
@@ -133,7 +133,7 @@ func (m *Model) EOS() LlamaToken {
 
 // NewContext creates a new inference context from a model
 func (m *Model) NewContext(opts ContextOptions) (*Context, error) {
-	if llamaInitFromModel == nil {
+	if libLlama == 0 {
 		return nil, ErrNotInitialized
 	}
 
@@ -271,33 +271,45 @@ func (c *Context) Decode(tokens []LlamaToken, pos int32) error {
 	return nil
 }
 
-// GetLogits returns the logits for the last token
+// GetLogits returns the logits for the last token.
+// The returned slice aliases C memory and is only valid until the next Decode call or context Close.
 func (c *Context) GetLogits() []float32 {
 	ptr := llamaGetLogits(c.ctx)
-	if ptr == 0 {
+	if ptr == nil {
 		return nil
 	}
 	vocabSize := c.model.VocabSize()
-	return unsafe.Slice((*float32)(unsafe.Pointer(ptr)), vocabSize)
+	if vocabSize <= 0 {
+		return nil
+	}
+	return unsafe.Slice((*float32)(ptr), vocabSize)
 }
 
-// GetLogitsIth returns the logits for token at index i
+// GetLogitsIth returns the logits for token at index i.
+// The returned slice aliases C memory and is only valid until the next Decode call or context Close.
 func (c *Context) GetLogitsIth(i int32) []float32 {
 	ptr := llamaGetLogitsIth(c.ctx, i)
-	if ptr == 0 {
+	if ptr == nil {
 		return nil
 	}
 	vocabSize := c.model.VocabSize()
-	return unsafe.Slice((*float32)(unsafe.Pointer(ptr)), vocabSize)
-}
-
-// GetEmbeddings returns the embeddings (requires embeddings mode)
-func (c *Context) GetEmbeddings() []float32 {
-	ptr := llamaGetEmbeddings(c.ctx)
-	if ptr == 0 {
+	if vocabSize <= 0 {
 		return nil
 	}
-	return unsafe.Slice((*float32)(unsafe.Pointer(ptr)), c.model.nEmbd)
+	return unsafe.Slice((*float32)(ptr), vocabSize)
+}
+
+// GetEmbeddings returns the embeddings (requires embeddings mode).
+// The returned slice aliases C memory and is only valid until the next Decode call or context Close.
+func (c *Context) GetEmbeddings() []float32 {
+	ptr := llamaGetEmbeddings(c.ctx)
+	if ptr == nil {
+		return nil
+	}
+	if c.model.nEmbd <= 0 {
+		return nil
+	}
+	return unsafe.Slice((*float32)(ptr), c.model.nEmbd)
 }
 
 // ClearKVCache clears the KV cache
