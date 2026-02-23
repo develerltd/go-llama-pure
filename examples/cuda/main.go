@@ -97,6 +97,23 @@ func main() {
 	fmt.Printf("Model loaded: vocab=%d, embedding=%d\n", model.VocabSize(), model.EmbeddingSize())
 	fmt.Printf("GPU layers: %d (CUDA device %d)\n\n", *gpuLayers, *mainGPU)
 
+	// Test tokenize → detokenize round-trip
+	testText := "Hello, world! This is a test of detokenization."
+	tokens, err := model.Tokenize(testText, false, false)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Tokenize failed: %v\n", err)
+		os.Exit(1)
+	}
+	roundTrip := model.Detokenize(tokens)
+	fmt.Printf("Detokenize test: %d tokens, round-trip: %q\n", len(tokens), roundTrip)
+
+	// Also test TokenToPiece on each token
+	var piecewise string
+	for _, t := range tokens {
+		piecewise += model.TokenToPiece(t)
+	}
+	fmt.Printf("TokenToPiece test: %q\n\n", piecewise)
+
 	// Create context
 	ctx, err := model.NewContext(llama.ContextOptions{
 		ContextSize: 4096,

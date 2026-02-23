@@ -2,19 +2,34 @@
 
 package llama
 
-// Assembly functions for calling C functions with struct-by-value arguments
-// on Linux amd64. Implemented in call_linux_amd64.s.
+import (
+	"fmt"
+	"unsafe"
+
+	"github.com/ebitengine/purego"
+)
 
 // callWithStruct calls a C function: result = fn(arg1, struct_by_value)
 // where the struct of the given size is passed on the stack per System V AMD64 ABI.
-// The size must be a multiple of 8 and at most 264 bytes.
+// Implemented in call_linux_amd64.s.
 //
 //go:noescape
 func callWithStruct(fn uintptr, arg1 uintptr, structPtr *byte, size uintptr) uintptr
 
-// callStructOnly calls a C function: fn(struct_by_value)
-// where the struct is the only argument (no return value).
-// The size must be a multiple of 8 and at most 264 bytes.
-//
-//go:noescape
-func callStructOnly(fn uintptr, structPtr *byte, size uintptr)
+func registerInitFromModel(libHandle uintptr) error {
+	// LlamaContextParams is 136 bytes (17 qwords), which exceeds purego's
+	// stack-argument limit of 9 slots on amd64. Use assembly to pass it.
+	fn, err := purego.Dlsym(libHandle, "llama_init_from_model")
+	if err != nil {
+		return fmt.Errorf("failed to find llama_init_from_model: %w", err)
+	}
+	llamaInitFromModelRaw = func(model LlamaModel, params LlamaContextParams) LlamaContext {
+		return LlamaContext(callWithStruct(
+			fn,
+			uintptr(model),
+			(*byte)(unsafe.Pointer(&params)),
+			unsafe.Sizeof(params),
+		))
+	}
+	return nil
+}

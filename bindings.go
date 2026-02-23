@@ -16,15 +16,6 @@ var (
 	initErr  error
 )
 
-// Function addresses for syscall-based calls (for struct arguments on Linux)
-var (
-	fnModelLoadFromFile uintptr
-	fnInitFromModel     uintptr
-	fnDecode            uintptr
-	fnEncode            uintptr
-	fnBatchFree         uintptr
-)
-
 // Library function pointers - populated by Init()
 var (
 	// Backend management
@@ -53,8 +44,6 @@ var (
 	llamaVocabBos func(vocab LlamaVocab) LlamaToken
 	llamaVocabEos func(vocab LlamaVocab) LlamaToken
 	llamaVocabNl  func(vocab LlamaVocab) LlamaToken
-
-	// Note: llama_batch_free uses assembly (platformBatchFree)
 
 	// Logits and embeddings
 	llamaGetLogits        func(ctx LlamaContext) unsafe.Pointer
@@ -127,7 +116,7 @@ func Init(libraryPath string) error {
 			return
 		}
 
-		// Register platform-specific struct functions (darwin uses purego directly)
+		// Register struct-by-value functions via purego
 		if err := registerStructFunctions(libLlama); err != nil {
 			initErr = err
 			return
@@ -181,35 +170,8 @@ func Shutdown() {
 }
 
 func registerFunctions() error {
-	var err error
-
 	register := func(fnPtr interface{}, name string) {
-		if err != nil {
-			return
-		}
 		purego.RegisterLibFunc(fnPtr, libLlama, name)
-	}
-
-	// Get function addresses for syscall-based calls (struct-by-value on Linux)
-	fnModelLoadFromFile, err = purego.Dlsym(libLlama, "llama_model_load_from_file")
-	if err != nil {
-		return fmt.Errorf("failed to find llama_model_load_from_file: %w", err)
-	}
-	fnInitFromModel, err = purego.Dlsym(libLlama, "llama_init_from_model")
-	if err != nil {
-		return fmt.Errorf("failed to find llama_init_from_model: %w", err)
-	}
-	fnDecode, err = purego.Dlsym(libLlama, "llama_decode")
-	if err != nil {
-		return fmt.Errorf("failed to find llama_decode: %w", err)
-	}
-	fnEncode, err = purego.Dlsym(libLlama, "llama_encode")
-	if err != nil {
-		return fmt.Errorf("failed to find llama_encode: %w", err)
-	}
-	fnBatchFree, err = purego.Dlsym(libLlama, "llama_batch_free")
-	if err != nil {
-		return fmt.Errorf("failed to find llama_batch_free: %w", err)
 	}
 
 	// Backend management
@@ -237,9 +199,6 @@ func registerFunctions() error {
 	register(&llamaVocabBos, "llama_vocab_bos")
 	register(&llamaVocabEos, "llama_vocab_eos")
 	register(&llamaVocabNl, "llama_vocab_nl")
-
-	// Note: llama_batch_free, llama_decode and llama_encode are called via platform-specific assembly
-	// because they take llama_batch by value (56-byte struct)
 
 	// Logits and embeddings
 	register(&llamaGetLogits, "llama_get_logits")

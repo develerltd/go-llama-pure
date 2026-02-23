@@ -231,6 +231,9 @@ func (m *Model) Detokenize(tokens []LlamaToken) string {
 	if n <= 0 {
 		return ""
 	}
+	if int(n) > len(buf) {
+		n = int32(len(buf))
+	}
 
 	return string(buf[:n])
 }
@@ -246,6 +249,9 @@ func (m *Model) TokenToPiece(token LlamaToken) string {
 	}
 	if n <= 0 {
 		return ""
+	}
+	if int(n) > len(buf) {
+		n = int32(len(buf))
 	}
 	return string(buf[:n])
 }
