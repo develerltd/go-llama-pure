@@ -159,10 +159,12 @@ type LlamaSamplerChainParams struct {
 	NoPerf bool
 }
 
-// LlamaChatMessage represents a chat message
+// LlamaChatMessage represents a chat message.
+// Role and Content are uintptr (not *byte) so the GC does not follow
+// them into C-allocated memory, which would cause heap corruption.
 type LlamaChatMessage struct {
-	Role    *byte // const char *
-	Content *byte // const char *
+	Role    uintptr // const char *
+	Content uintptr // const char *
 }
 
 // Helper to convert Go string to C string (null-terminated byte slice)

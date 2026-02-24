@@ -47,12 +47,14 @@ var (
 	llamaVocabEos func(vocab LlamaVocab) LlamaToken
 	llamaVocabNl  func(vocab LlamaVocab) LlamaToken
 
-	// Logits and embeddings
-	llamaGetLogits        func(ctx LlamaContext) unsafe.Pointer
-	llamaGetLogitsIth     func(ctx LlamaContext, i int32) unsafe.Pointer
-	llamaGetEmbeddings    func(ctx LlamaContext) unsafe.Pointer
-	llamaGetEmbeddingsIth func(ctx LlamaContext, i int32) unsafe.Pointer
-	llamaGetEmbeddingsSeq func(ctx LlamaContext, seqID LlamaSeqID) unsafe.Pointer
+	// Logits and embeddings — return uintptr (not unsafe.Pointer) so the GC
+	// never sees a C-allocated address as a Go pointer. The callers convert
+	// to unsafe.Pointer only at point-of-use for the copy.
+	llamaGetLogits        func(ctx LlamaContext) uintptr
+	llamaGetLogitsIth     func(ctx LlamaContext, i int32) uintptr
+	llamaGetEmbeddings    func(ctx LlamaContext) uintptr
+	llamaGetEmbeddingsIth func(ctx LlamaContext, i int32) uintptr
+	llamaGetEmbeddingsSeq func(ctx LlamaContext, seqID LlamaSeqID) uintptr
 
 	// Sampler chain
 	llamaSamplerChainInitPtr func(params *LlamaSamplerChainParams) LlamaSampler
@@ -143,7 +145,11 @@ func Init(libraryPath string) error {
 			backendDir := libraryDir(libraryPath)
 			if backendDir != "" {
 				dir := cString(backendDir)
+				var dirPinner runtime.Pinner
+				dirPinner.Pin(dir)
 				ggmlBackendLoadAllFromPath(dir)
+				dirPinner.Unpin()
+				runtime.KeepAlive(dir)
 			} else {
 				// Fall back to no-arg version
 				sym2, _ := purego.Dlsym(libLlama, "ggml_backend_load_all")
@@ -301,7 +307,12 @@ func DefaultSamplerChainParams() LlamaSamplerChainParams {
 }
 
 func llamaSamplerChainInit(params LlamaSamplerChainParams) LlamaSampler {
-	return llamaSamplerChainInitPtr(&params)
+	var pinner runtime.Pinner
+	pinner.Pin(&params)
+	result := llamaSamplerChainInitPtr(&params)
+	pinner.Unpin()
+	runtime.KeepAlive(params)
+	return result
 }
 
 // llamaDecode wraps the platform decode function.

@@ -1,6 +1,10 @@
 package llama
 
-import "fmt"
+import (
+	"fmt"
+	"runtime"
+	"unsafe"
+)
 
 // SamplingParams contains parameters for text generation sampling
 type SamplingParams struct {
@@ -121,12 +125,16 @@ func NewSampler(params SamplingParams) *Sampler {
 
 // Sample samples a token from the context at the given index
 func (s *Sampler) Sample(ctx *Context, idx int32) LlamaToken {
-	return llamaSamplerSample(s.chain, ctx.ctx, idx)
+	result := llamaSamplerSample(s.chain, ctx.ctx, idx)
+	runtime.KeepAlive(s)
+	runtime.KeepAlive(ctx)
+	return result
 }
 
 // Accept tells the sampler that a token was accepted (for penalties)
 func (s *Sampler) Accept(token LlamaToken) {
 	llamaSamplerAccept(s.chain, token)
+	runtime.KeepAlive(s)
 }
 
 // Reset resets the sampler state
@@ -199,6 +207,34 @@ func (c *Context) Generate(prompt string, opts GenerateOptions) (string, error) 
 		stopTokens[t] = true
 	}
 
+	// Pre-allocate a single-token batch and pin it once for the entire
+	// generation loop. This eliminates ~8 heap allocations per token and
+	// drastically reduces GC pressure during C interop.
+	batchTokens := []LlamaToken{0}
+	batchPos := []LlamaPos{0}
+	batchNSeqID := []int32{1}
+	batchSeqIDData := []LlamaSeqID{0}
+	batchSeqIDPtrs := []uintptr{uintptr(unsafe.Pointer(&batchSeqIDData[0]))}
+	batchLogits := []int8{1}
+
+	batch := LlamaBatch{
+		NTokens: 1,
+		Token:   uintptr(unsafe.Pointer(&batchTokens[0])),
+		Embd:    0,
+		Pos:     uintptr(unsafe.Pointer(&batchPos[0])),
+		NSeqID:  uintptr(unsafe.Pointer(&batchNSeqID[0])),
+		SeqID:   uintptr(unsafe.Pointer(&batchSeqIDPtrs[0])),
+		Logits:  uintptr(unsafe.Pointer(&batchLogits[0])),
+	}
+
+	var batchPinner runtime.Pinner
+	batchPinner.Pin(&batchTokens[0])
+	batchPinner.Pin(&batchPos[0])
+	batchPinner.Pin(&batchNSeqID[0])
+	batchPinner.Pin(&batchSeqIDData[0])
+	batchPinner.Pin(&batchSeqIDPtrs[0])
+	batchPinner.Pin(&batchLogits[0])
+
 	// Generate tokens
 	var generated []LlamaToken
 	pos := int32(len(tokens))
@@ -223,9 +259,19 @@ func (c *Context) Generate(prompt string, opts GenerateOptions) (string, error) 
 			}
 		}
 
-		// Decode next token
-		if err := c.Decode([]LlamaToken{token}, pos); err != nil {
-			return "", err
+		// Update pre-allocated batch buffers and decode
+		batchTokens[0] = token
+		batchPos[0] = LlamaPos(pos)
+		result := llamaDecode(c.ctx, batch)
+		if result != 0 {
+			batchPinner.Unpin()
+			runtime.KeepAlive(batchTokens)
+			runtime.KeepAlive(batchPos)
+			runtime.KeepAlive(batchNSeqID)
+			runtime.KeepAlive(batchSeqIDData)
+			runtime.KeepAlive(batchSeqIDPtrs)
+			runtime.KeepAlive(batchLogits)
+			return "", fmt.Errorf("%w: error code %d", ErrDecode, result)
 		}
 		pos++
 
@@ -234,6 +280,18 @@ func (c *Context) Generate(prompt string, opts GenerateOptions) (string, error) 
 			break
 		}
 	}
+
+	batchPinner.Unpin()
+	runtime.KeepAlive(batchTokens)
+	runtime.KeepAlive(batchPos)
+	runtime.KeepAlive(batchNSeqID)
+	runtime.KeepAlive(batchSeqIDData)
+	runtime.KeepAlive(batchSeqIDPtrs)
+	runtime.KeepAlive(batchLogits)
+
+	// Ensure all pending C operations are complete before the deferred
+	// sampler.Close() frees the sampler chain's C memory.
+	llamaSynchronize(c.ctx)
 
 	return c.model.Detokenize(generated), nil
 }
@@ -256,8 +314,5 @@ func (c *Context) Embedding(text string) ([]float32, error) {
 		return nil, fmt.Errorf("no embeddings available - context must be created with Embeddings=true")
 	}
 
-	// Return a copy
-	result := make([]float32, len(emb))
-	copy(result, emb)
-	return result, nil
+	return emb, nil
 }

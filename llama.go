@@ -88,7 +88,11 @@ func LoadModel(path string, opts ModelOptions) (*Model, error) {
 	params.MainGPU = opts.MainGPU
 
 	pathBytes := cString(path)
+	var pinner runtime.Pinner
+	pinner.Pin(pathBytes)
 	model := llamaModelLoadFromFile(pathBytes, params)
+	pinner.Unpin()
+	runtime.KeepAlive(pathBytes)
 	if model == 0 {
 		return nil, fmt.Errorf("%w: %s", ErrModelLoad, path)
 	}
@@ -193,17 +197,30 @@ func (c *Context) Model() *Model {
 func (m *Model) Tokenize(text string, addBOS bool, special bool) ([]LlamaToken, error) {
 	textBytes := cString(text)
 
+	// Pin the C string to prevent GC collection during the purego C call.
+	// purego converts Go pointers to uintptr internally, making them
+	// invisible to the GC.
+	var pinner runtime.Pinner
+	pinner.Pin(textBytes)
+
 	// First call to get required size
 	nTokens := llamaTokenize(m.vocab, textBytes, int32(len(text)), nil, 0, addBOS, special)
 	if nTokens < 0 {
 		nTokens = -nTokens // Returns negative of required size
 	}
 	if nTokens == 0 {
+		pinner.Unpin()
 		return []LlamaToken{}, nil
 	}
 
 	tokens := make([]LlamaToken, nTokens)
+	pinner.Pin(&tokens[0])
+
 	result := llamaTokenize(m.vocab, textBytes, int32(len(text)), &tokens[0], nTokens, addBOS, special)
+
+	pinner.Unpin()
+	runtime.KeepAlive(textBytes)
+	runtime.KeepAlive(tokens)
 	if result < 0 {
 		return nil, ErrTokenize
 	}
@@ -221,13 +238,25 @@ func (m *Model) Detokenize(tokens []LlamaToken) string {
 	bufSize := int32(len(tokens) * 8)
 	buf := make([]byte, bufSize)
 
+	var pinner runtime.Pinner
+	pinner.Pin(&tokens[0])
+	pinner.Pin(&buf[0])
+
 	n := llamaDetokenize(m.vocab, &tokens[0], int32(len(tokens)), &buf[0], bufSize, false, true)
 	if n < 0 {
+		pinner.Unpin()
 		// Need larger buffer
 		bufSize = -n
 		buf = make([]byte, bufSize)
+		pinner.Pin(&tokens[0])
+		pinner.Pin(&buf[0])
 		n = llamaDetokenize(m.vocab, &tokens[0], int32(len(tokens)), &buf[0], bufSize, false, true)
 	}
+
+	pinner.Unpin()
+	runtime.KeepAlive(tokens)
+	runtime.KeepAlive(buf)
+
 	if n <= 0 {
 		return ""
 	}
@@ -241,12 +270,22 @@ func (m *Model) Detokenize(tokens []LlamaToken) string {
 // TokenToPiece converts a single token to its text representation
 func (m *Model) TokenToPiece(token LlamaToken) string {
 	buf := make([]byte, 64)
+
+	var pinner runtime.Pinner
+	pinner.Pin(&buf[0])
+
 	n := llamaTokenToPiece(m.vocab, token, &buf[0], 64, 0, true)
 	if n < 0 {
+		pinner.Unpin()
 		// Need larger buffer
 		buf = make([]byte, -n)
+		pinner.Pin(&buf[0])
 		n = llamaTokenToPiece(m.vocab, token, &buf[0], int32(-n), 0, true)
 	}
+
+	pinner.Unpin()
+	runtime.KeepAlive(buf)
+
 	if n <= 0 {
 		return ""
 	}
@@ -264,10 +303,20 @@ func (c *Context) Decode(tokens []LlamaToken, pos int32) error {
 
 	batchData := BatchGetOne(tokens, LlamaPos(pos), 0)
 
-	// Keep alive before AND after to prevent any early GC
-	runtime.KeepAlive(batchData)
-	runtime.KeepAlive(tokens)
+	// Pin all Go memory that the C function will read via the batch's uintptr fields.
+	// The GC cannot track these as pointers (they're uintptr), so we must pin them
+	// to guarantee they remain valid for the duration of the C call.
+	var pinner runtime.Pinner
+	pinner.Pin(&batchData.Tokens[0])
+	pinner.Pin(&batchData.Pos[0])
+	pinner.Pin(&batchData.NSeqID[0])
+	pinner.Pin(&batchData.SeqIDData[0])
+	pinner.Pin(&batchData.SeqIDPtrs[0])
+	pinner.Pin(&batchData.Logits[0])
+
 	result := llamaDecode(c.ctx, batchData.Batch)
+
+	pinner.Unpin()
 	runtime.KeepAlive(batchData)
 	runtime.KeepAlive(tokens)
 	if result != 0 {
@@ -277,45 +326,56 @@ func (c *Context) Decode(tokens []LlamaToken, pos int32) error {
 	return nil
 }
 
-// GetLogits returns the logits for the last token.
-// The returned slice aliases C memory and is only valid until the next Decode call or context Close.
+// GetLogits returns a copy of the logits for the last token.
+// The returned slice is Go-owned and safe to retain across Decode calls.
 func (c *Context) GetLogits() []float32 {
 	ptr := llamaGetLogits(c.ctx)
-	if ptr == nil {
+	if ptr == 0 {
 		return nil
 	}
 	vocabSize := c.model.VocabSize()
 	if vocabSize <= 0 {
 		return nil
 	}
-	return unsafe.Slice((*float32)(ptr), vocabSize)
+	// Convert uintptr→unsafe.Pointer only for the copy; the pointer never
+	// escapes to the heap so the GC cannot mistake it for a Go object.
+	src := unsafe.Slice((*float32)(unsafe.Pointer(ptr)), vocabSize)
+	dst := make([]float32, vocabSize)
+	copy(dst, src)
+	return dst
 }
 
-// GetLogitsIth returns the logits for token at index i.
-// The returned slice aliases C memory and is only valid until the next Decode call or context Close.
+// GetLogitsIth returns a copy of the logits for token at index i.
+// The returned slice is Go-owned and safe to retain across Decode calls.
 func (c *Context) GetLogitsIth(i int32) []float32 {
 	ptr := llamaGetLogitsIth(c.ctx, i)
-	if ptr == nil {
+	if ptr == 0 {
 		return nil
 	}
 	vocabSize := c.model.VocabSize()
 	if vocabSize <= 0 {
 		return nil
 	}
-	return unsafe.Slice((*float32)(ptr), vocabSize)
+	src := unsafe.Slice((*float32)(unsafe.Pointer(ptr)), vocabSize)
+	dst := make([]float32, vocabSize)
+	copy(dst, src)
+	return dst
 }
 
-// GetEmbeddings returns the embeddings (requires embeddings mode).
-// The returned slice aliases C memory and is only valid until the next Decode call or context Close.
+// GetEmbeddings returns a copy of the embeddings (requires embeddings mode).
+// The returned slice is Go-owned and safe to retain across Decode calls.
 func (c *Context) GetEmbeddings() []float32 {
 	ptr := llamaGetEmbeddings(c.ctx)
-	if ptr == nil {
+	if ptr == 0 {
 		return nil
 	}
 	if c.model.nEmbd <= 0 {
 		return nil
 	}
-	return unsafe.Slice((*float32)(ptr), c.model.nEmbd)
+	src := unsafe.Slice((*float32)(unsafe.Pointer(ptr)), c.model.nEmbd)
+	dst := make([]float32, c.model.nEmbd)
+	copy(dst, src)
+	return dst
 }
 
 // ClearKVCache clears the KV cache (memory) for this context.
