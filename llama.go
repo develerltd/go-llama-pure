@@ -10,10 +10,10 @@ import (
 )
 
 var (
-	ErrModelLoad    = errors.New("failed to load model")
-	ErrContextInit  = errors.New("failed to initialize context")
-	ErrTokenize     = errors.New("tokenization failed")
-	ErrDecode       = errors.New("decode failed")
+	ErrModelLoad      = errors.New("failed to load model")
+	ErrContextInit    = errors.New("failed to initialize context")
+	ErrTokenize       = errors.New("tokenization failed")
+	ErrDecode         = errors.New("decode failed")
 	ErrNotInitialized = errors.New("llama library not initialized - call Init() first")
 )
 
@@ -34,11 +34,11 @@ type Context struct {
 
 // ModelOptions contains options for loading a model
 type ModelOptions struct {
-	NGPULayers  int32   // Number of layers to offload to GPU (0 = CPU only)
-	UseMmap     bool    // Use memory mapping for model loading
-	UseMlock    bool    // Lock model in memory
-	VocabOnly   bool    // Only load vocabulary
-	MainGPU     int32   // Main GPU to use
+	NGPULayers int32 // Number of layers to offload to GPU (0 = CPU only)
+	UseMmap    bool  // Use memory mapping for model loading
+	UseMlock   bool  // Lock model in memory
+	VocabOnly  bool  // Only load vocabulary
+	MainGPU    int32 // Main GPU to use
 }
 
 // DefaultModelOptions returns default model loading options
@@ -54,22 +54,22 @@ func DefaultModelOptions() ModelOptions {
 
 // ContextOptions contains options for creating a context
 type ContextOptions struct {
-	ContextSize   uint32  // Context window size (0 = model default)
-	BatchSize     uint32  // Batch size for prompt processing
-	Threads       int32   // Number of threads (0 = auto)
-	ThreadsBatch  int32   // Number of threads for batch processing (0 = same as Threads)
-	Embeddings    bool    // Enable embeddings mode
+	ContextSize    uint32 // Context window size (0 = model default)
+	BatchSize      uint32 // Batch size for prompt processing
+	Threads        int32  // Number of threads (0 = auto)
+	ThreadsBatch   int32  // Number of threads for batch processing (0 = same as Threads)
+	Embeddings     bool   // Enable embeddings mode
 	FlashAttention bool   // Enable flash attention (if available)
 }
 
 // DefaultContextOptions returns default context options
 func DefaultContextOptions() ContextOptions {
 	return ContextOptions{
-		ContextSize:   2048,
-		BatchSize:     512,
-		Threads:       0,
-		ThreadsBatch:  0,
-		Embeddings:    false,
+		ContextSize:    2048,
+		BatchSize:      512,
+		Threads:        0,
+		ThreadsBatch:   0,
+		Embeddings:     false,
 		FlashAttention: false,
 	}
 }
@@ -82,10 +82,20 @@ func LoadModel(path string, opts ModelOptions) (*Model, error) {
 
 	params := DefaultModelParams()
 	params.NGPULayers = opts.NGPULayers
-	params.UseMmap = opts.UseMmap
-	params.UseMlock = opts.UseMlock
 	params.VocabOnly = opts.VocabOnly
 	params.MainGPU = opts.MainGPU
+
+	// Map boolean options to LlamaLoadMode enum
+	switch {
+	case opts.UseMmap && opts.UseMlock:
+		params.LoadMode = LlamaLoadModeMmapMlock
+	case opts.UseMmap:
+		params.LoadMode = LlamaLoadModeMmap
+	case opts.UseMlock:
+		params.LoadMode = LlamaLoadModeMlock
+	default:
+		params.LoadMode = LlamaLoadModeNone
+	}
 
 	pathBytes := cString(path)
 	var pinner runtime.Pinner
