@@ -158,6 +158,7 @@ type LlamaContextParams struct {
 	TypeK             GGMLType
 	TypeV             GGMLType
 	MoeCacheSize      uintptr // size_t
+	MoeCacheCpuShare  float32 // float
 	AbortCallback     uintptr // ggml_abort_callback
 	AbortCallbackData uintptr // void *
 	Embeddings        bool

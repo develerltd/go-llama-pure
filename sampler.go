@@ -196,8 +196,27 @@ func (c *Context) Generate(prompt string, opts GenerateOptions) (string, error) 
 	defer sampler.Close()
 
 	// Process prompt
-	if err := c.Decode(tokens, 0); err != nil {
-		return "", err
+
+	// Replace:
+	// if err := c.Decode(tokens, 0); err != nil {
+	//     return "", err
+	// }
+
+	// With chunked decoding:
+	batchSize := int(c.nCtx) // Or a fixed max chunk like 512
+	if batchSize > 512 {
+		batchSize = 512
+	}
+
+	for i := 0; i < len(tokens); i += batchSize {
+		end := i + batchSize
+		if end > len(tokens) {
+			end = len(tokens)
+		}
+		chunk := tokens[i:end]
+		if err := c.Decode(chunk, int32(i)); err != nil {
+			return "", fmt.Errorf("failed to decode prompt chunk at pos %d: %w", i, err)
+		}
 	}
 
 	// Build stop token set
