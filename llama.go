@@ -168,6 +168,11 @@ func (m *Model) NewContext(opts ContextOptions) (*Context, error) {
 		params.NThreadsBatch = opts.Threads
 	}
 	params.Embeddings = opts.Embeddings
+	if opts.FlashAttention {
+		params.FlashAttnType = LlamaFlashAttnTypeEnabled
+	} else {
+		params.FlashAttnType = LlamaFlashAttnTypeDisabled
+	}
 
 	ctx := llamaInitFromModel(m.model, params)
 	if ctx == 0 {

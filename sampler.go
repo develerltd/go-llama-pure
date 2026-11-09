@@ -204,7 +204,7 @@ func (c *Context) Generate(prompt string, opts GenerateOptions) (string, error) 
 
 	// With chunked decoding:
 	batchSize := int(c.nCtx) // Or a fixed max chunk like 512
-	if batchSize > 512 {
+	if batchSize > 512 || batchSize <= 0 {
 		batchSize = 512
 	}
 

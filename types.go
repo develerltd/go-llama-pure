@@ -167,7 +167,7 @@ type LlamaContextParams struct {
 	OpOffload         bool
 	SwaFull           bool
 	KvUnified         bool
-	_pad              [2]byte // Alignment padding for pointer alignment
+	_pad              [7]byte // Alignment padding for pointer alignment
 	Samplers          uintptr // struct llama_sampler_seq_config *
 	NSamplers         uint64  // size_t
 	CtxOther          uintptr // struct llama_context *
@@ -216,6 +216,7 @@ type LlamaChatMessage struct {
 func cString(s string) *byte {
 	b := make([]byte, len(s)+1)
 	copy(b, s)
+	b[len(s)] = 0
 	return &b[0]
 }
 
