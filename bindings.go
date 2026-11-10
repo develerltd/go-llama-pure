@@ -19,17 +19,17 @@ var (
 // Library function pointers - populated by Init()
 var (
 	// Backend management
-	llamaBackendInit    func()
-	llamaBackendFree    func()
-	ggmlBackendLoadAll  func()
+	llamaBackendInit   func()
+	llamaBackendFree   func()
+	ggmlBackendLoadAll func()
 
 	// Model management
 	llamaModelFreeRaw     func(model uintptr)
 	llamaModelGetVocabRaw func(model uintptr) uintptr
 
 	// Context management
-	llamaFreeRaw       func(ctx uintptr)
-	llamaGetMemoryRaw  func(ctx uintptr) uintptr
+	llamaFreeRaw        func(ctx uintptr)
+	llamaGetMemoryRaw   func(ctx uintptr) uintptr
 	llamaMemoryClearRaw func(mem uintptr, data bool)
 
 	// Model/context info
@@ -255,15 +255,14 @@ func llamaInitFromModel(model LlamaModel, params LlamaContextParams) LlamaContex
 	return platformInitFromModel(model, params)
 }
 
-// DefaultModelParams returns default model parameters matching llama_model_default_params()
 func DefaultModelParams() LlamaModelParams {
 	return LlamaModelParams{
 		NGPULayers:    -1,
 		SplitMode:     LlamaSplitModeLayer,
+		LoadMode:      LlamaLoadModeMmap, // Replaces UseMmap, UseDirectIO, and UseMlock
+		LazyMode:      LlamaLazyModeOff,
 		MainGPU:       0,
-		UseMmap:       true,
-		UseDirectIO:   true,
-		UseMlock:      false,
+		CheckTensors:  true,
 		UseExtraBufts: true,
 	}
 }
@@ -368,13 +367,13 @@ func llamaVocabNTokens(vocab LlamaVocab) int32 {
 
 // BatchData holds the underlying data for a batch to prevent GC collection
 type BatchData struct {
-	Batch      LlamaBatch
-	Tokens     []LlamaToken
-	Pos        []LlamaPos
-	NSeqID     []int32
-	SeqIDData  []LlamaSeqID
-	SeqIDPtrs  []uintptr
-	Logits     []int8
+	Batch     LlamaBatch
+	Tokens    []LlamaToken
+	Pos       []LlamaPos
+	NSeqID    []int32
+	SeqIDData []LlamaSeqID
+	SeqIDPtrs []uintptr
+	Logits    []int8
 }
 
 // BatchGetOne creates a batch for a single sequence of tokens.
